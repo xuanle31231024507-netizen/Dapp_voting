@@ -2,105 +2,100 @@
 pragma solidity ^0.8.0;
 
 contract Voting {
-
-    address public electionCommission;
-
-    struct Voter {
-        string name;
-        uint age;
-        bool voted;
-        uint vote;
-    }
-
+    /// State Variables
     struct Candidate {
         uint id;
         string name;
-        string party;
+        string bio;
         uint voteCount;
     }
 
-    uint public candidatesCount;
-    uint public votersCount;
-
-    mapping(address => Voter) public voters;
     mapping(uint => Candidate) public candidates;
+    mapping(address => bool) public hasVoted;
+    uint public candidatesCount;
+    address public owner;
+    uint public startTime;
+    uint public endTime;
 
-    event votedEvent(uint indexed candidateId);
+    /// Events
+    event votedEvent(uint indexed _candidateId);
+    event candidateAdded(uint indexed _candidateId, string name, string bio);
+    event candidateUpdated(uint indexed _candidateId, string name, string bio);
+    event candidateDeleted(uint indexed _candidateId);
 
+    /// Modifiers
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can call this function");
+        _;
+    }
+
+    modifier withinVotingPeriod() {
+        require(block.timestamp >= startTime, "Voting has not started yet");
+        require(block.timestamp <= endTime, "Voting has ended");
+        _;
+    }
+
+    /// Constructor
     constructor() {
-        electionCommission = msg.sender;
+        owner = msg.sender;
+        startTime = block.timestamp;
+        endTime = block.timestamp + 1 days;
+
+        _addCandidate("Michael Anderson", "A seasoned leader with 10 years of experience in decentralized governance. Committed to transparency and community-driven decision making.");
+        _addCandidate("Christopher Walker", "Blockchain enthusiast and software engineer. Focuses on building scalable and secure infrastructure for Web3 applications.");
+        _addCandidate("Daniel Thompson", "Advocate for privacy rights and open-source technology. Believes in empowering individuals through decentralized tools.");
+        _addCandidate("James Carter", "Financial analyst turned crypto researcher. Dedicated to creating sustainable economic models for decentralized ecosystems.");
     }
 
-    // REGISTER CANDIDATE
-    function addCandidate(
-        string memory _name,
-        string memory _party
-    ) public {
-
+    /// Internal Function
+    function _addCandidate(string memory _name, string memory _bio) internal {
         candidatesCount++;
-
-        candidates[candidatesCount] = Candidate(
-            candidatesCount,
-            _name,
-            _party,
-            0
-        );
+        candidates[candidatesCount] = Candidate(candidatesCount, _name, _bio, 0);
     }
 
-    // REGISTER VOTER
-    function registerVoter(
-        string memory _name,
-        uint _age
-    ) public {
-
-        require(_age >= 18, "Must be 18+");
-
-        voters[msg.sender] = Voter(
-            _name,
-            _age,
-            false,
-            0
-        );
-
-        votersCount++;
+    /// Owner Functions
+    function addCandidate(string memory _name, string memory _bio) public onlyOwner {
+        candidatesCount++;
+        candidates[candidatesCount] = Candidate(candidatesCount, _name, _bio, 0);
+        emit candidateAdded(candidatesCount, _name, _bio);
     }
 
-    // VOTE
-    function vote(uint _candidateId) public {
+    function setVotingPeriod(uint _startTime, uint _endTime) public onlyOwner {
+        require(_endTime > _startTime, "End time must be after start time");
+        startTime = _startTime;
+        endTime = _endTime;
+    }
 
-        require(!voters[msg.sender].voted, "Already voted");
+    function updateCandidate(uint _candidateId, string memory _name, string memory _bio) public onlyOwner {
+        require(_candidateId > 0 && _candidateId <= candidatesCount, "Invalid candidate ID");
+        require(bytes(candidates[_candidateId].name).length > 0, "Candidate does not exist");
+        candidates[_candidateId].name = _name;
+        candidates[_candidateId].bio = _bio;
+        emit candidateUpdated(_candidateId, _name, _bio);
+    }
 
-        require(
-            _candidateId > 0 &&
-            _candidateId <= candidatesCount,
-            "Invalid candidate"
-        );
+    function deleteCandidate(uint _candidateId) public onlyOwner {
+        require(_candidateId > 0 && _candidateId <= candidatesCount, "Invalid candidate ID");
+        require(bytes(candidates[_candidateId].name).length > 0, "Candidate does not exist");
+        delete candidates[_candidateId];
+        emit candidateDeleted(_candidateId);
+    }
 
-        voters[msg.sender].voted = true;
+    /// Vote Function
+    function vote(uint _candidateId) public withinVotingPeriod {
+        require(!hasVoted[msg.sender], "You have already voted");
+        require(_candidateId > 0 && _candidateId <= candidatesCount, "Invalid candidate ID");
+        require(bytes(candidates[_candidateId].name).length > 0, "Candidate does not exist");
 
-        voters[msg.sender].vote = _candidateId;
-
+        hasVoted[msg.sender] = true;
         candidates[_candidateId].voteCount++;
 
         emit votedEvent(_candidateId);
     }
 
-    // GET WINNER
-    function getWinner() public view returns (string memory) {
-
-        uint winningVoteCount = 0;
-        uint winningCandidateId = 0;
-
-        for(uint i = 1; i <= candidatesCount; i++) {
-
-            if(candidates[i].voteCount > winningVoteCount) {
-
-                winningVoteCount = candidates[i].voteCount;
-
-                winningCandidateId = i;
-            }
-        }
-
-        return candidates[winningCandidateId].name;
+    function getVotingStatus() public view returns (string memory) {
+        if (block.timestamp < startTime) return "NOT_STARTED";
+        if (block.timestamp >= startTime && block.timestamp <= endTime) return "ACTIVE";
+        return "ENDED";
     }
 }
